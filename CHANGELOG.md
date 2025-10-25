@@ -5,6 +5,44 @@ All notable changes to ComfyUI-ITO-Flux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-10-25
+
+### Fixed
+- **CRITICAL: Guidance cliff at step 14** - Fixed catastrophic guidance collapse in `flow_aware` schedule
+  - **Problem**: Arrival phase (t < 0.3) was triggering at 70% through sampling instead of final 15%
+  - **Symptom**: Guidance dropped from 4.5 → 3.0 at step 14/20, causing abstract blobs
+  - **Root cause**: Phase boundary at 0.3 was too high, making 70% of steps "arrival" phase
+- **Phase boundary adjustments**:
+  - Establishment: Changed from t > 0.7 to t > 0.6 (first 40% instead of 30%)
+  - Trajectory: Changed from 0.3 < t < 0.7 to 0.15 < t < 0.6 (middle 45% instead of 40%)
+  - Arrival: Changed from t < 0.3 to t < 0.15 (final 15% instead of 70%!)
+- **Higher base guidance throughout**:
+  - Establishment: 95% of max (was 90%)
+  - Trajectory: 75-90% of max (was 70-90%)
+  - Arrival: 70-85% of max (was absolute_min to 50% of max)
+- **Gradient limiting**: Added max_drop_per_step = 0.3 to prevent sudden guidance cliffs
+  - Tracks previous guidance and limits drops to 0.3 per step
+  - Prevents the 4.5 → 3.0 cliff that was breaking images
+
+### Changed
+- **Raised default `absolute_min_guidance`** from 3.0 to 3.5
+  - Flux needs at least 3.5 guidance for reliable prompt adherence
+  - Prevents mode collapse even if schedule goes too low
+
+### Technical Details
+- Added `previous_guidance` tracking to AdaptiveGuidanceScheduler
+- Gradient limiter only active when `flux_mode=True`
+- Reset previous_guidance on scheduler.reset()
+- Flow-aware schedule now maintains 70%+ of max guidance even in final phase
+
+### Expected Behavior (20 steps, guidance_max=5.0)
+```
+Steps 1-8:   4.5-5.0  (Establishment: setting trajectory)
+Steps 9-17:  3.8-4.5  (Trajectory: following flow)
+Steps 18-20: 3.5-4.0  (Arrival: completing with high guidance)
+```
+No more sudden drops! Smooth, gradual guidance adjustments throughout.
+
 ## [1.1.0] - 2025-10-25
 
 ### Added

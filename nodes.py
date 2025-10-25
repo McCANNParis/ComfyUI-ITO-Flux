@@ -46,7 +46,7 @@ class ITOFluxSampler:
 
                 # Flux-specific parameters
                 "flux_mode": ("BOOLEAN", {"default": True}),
-                "absolute_min_guidance": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
+                "absolute_min_guidance": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
                 "divergence_scaling": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0, "step": 0.1, "round": 0.01}),
             },
             "optional": {
@@ -233,7 +233,7 @@ class ITOFluxSamplerDebug:
 
                 # Flux-specific parameters
                 "flux_mode": ("BOOLEAN", {"default": True}),
-                "absolute_min_guidance": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
+                "absolute_min_guidance": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
                 "divergence_scaling": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0, "step": 0.1, "round": 0.01}),
             },
         }

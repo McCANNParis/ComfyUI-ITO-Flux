@@ -25,7 +25,7 @@ class AdaptiveGuidanceScheduler:
         sensitivity: float = 1.0,
         warmup_steps: int = 0,
         flux_mode: bool = True,
-        absolute_min_guidance: float = 3.0,
+        absolute_min_guidance: float = 3.5,  # Raised from 3.0 to prevent guidance collapse
         divergence_scaling: float = 5.0,
     ):
         """
@@ -38,7 +38,7 @@ class AdaptiveGuidanceScheduler:
             sensitivity: How responsive guidance is to divergence (higher = more responsive)
             warmup_steps: Number of steps before adaptive guidance kicks in
             flux_mode: Enable Flux-specific optimizations (default: True)
-            absolute_min_guidance: Hard floor for guidance (Flux needs 3.0+ for prompts)
+            absolute_min_guidance: Hard floor for guidance (Flux needs 3.5+ for prompts, default: 3.5)
             divergence_scaling: Multiply divergence by this factor for Flux (default: 5.0)
         """
         self.guidance_min = guidance_min
@@ -53,6 +53,7 @@ class AdaptiveGuidanceScheduler:
         self.divergence_scaling = divergence_scaling
 
         self.current_step = 0
+        self.previous_guidance = None  # Track previous guidance for gradient limiting
 
     def get_guidance_scale(
         self,
@@ -165,11 +166,13 @@ class AdaptiveGuidanceScheduler:
         """
         Flow-matching-aware schedule with phase-based guidance.
 
+        FIXED: Conservative phase boundaries to prevent premature guidance collapse.
+
         Designed specifically for flow matching models like Flux Dev.
         Uses three phases:
-        1. Establishment (t > 0.7): High, consistent guidance to set trajectory
-        2. Trajectory (0.3 < t < 0.7): Adaptive guidance with smooth transitions
-        3. Arrival (t < 0.3): Controlled reduction with hard minimum
+        1. Establishment (t > 0.6): High, consistent guidance to set trajectory (first 40%)
+        2. Trajectory (0.15 < t <= 0.6): Adaptive guidance with smooth transitions (middle 45%)
+        3. Arrival (t <= 0.15): Controlled reduction with hard minimum (final 15%)
 
         Args:
             divergence: Adjusted divergence value
@@ -188,45 +191,62 @@ class AdaptiveGuidanceScheduler:
             # Default to middle of trajectory phase
             t_norm = 0.5
 
-        # Phase 1: Establishment (t > 0.7) - Set correct flow direction
-        if t_norm > 0.7:
-            # High guidance to establish trajectory
-            # Less responsive to divergence in this phase
-            base_guidance = self.guidance_max * 0.9
-            # Allow small adjustment based on divergence
-            adjustment = divergence * (self.guidance_max - base_guidance) * 0.3
+        # Phase 1: Establishment (t > 0.6) - Set correct flow direction
+        # This is now first 40% instead of first 30%
+        if t_norm > 0.6:
+            # High, stable guidance to establish trajectory
+            # Minimal divergence influence in this critical phase
+            base_guidance = self.guidance_max * 0.95  # Even higher base (was 0.9)
+            # Very small adjustment based on divergence
+            adjustment = divergence * (self.guidance_max - base_guidance) * 0.2
             guidance = base_guidance + adjustment
 
-        # Phase 2: Trajectory (0.3 < t < 0.7) - Follow established flow
-        elif t_norm > 0.3:
-            # Moderate, adaptive guidance
-            # More responsive to divergence but with smooth transitions
-            phase_progress = (t_norm - 0.3) / 0.4  # 0 to 1 within this phase
+        # Phase 2: Trajectory (0.15 < t <= 0.6) - Follow established flow
+        # This is now middle 45% instead of middle 40%
+        elif t_norm > 0.15:  # FIXED: was 0.3, now 0.15
+            # Moderate to high guidance with smooth adaptation
+            # More responsive to divergence but still conservative
+            phase_progress = (t_norm - 0.15) / 0.45  # 0 to 1 within this phase
 
-            # Start high, gradually allow more adaptation
-            base_guidance = self.guidance_max * (0.7 + 0.2 * (1.0 - phase_progress))
+            # Keep guidance high throughout this phase
+            # Start at 90% of max, reduce to 75% of max
+            base_guidance = self.guidance_max * (0.75 + 0.15 * phase_progress)
 
-            # Smoothly increase divergence sensitivity as we progress
-            sensitivity_factor = 0.3 + 0.4 * (1.0 - phase_progress)
+            # Moderate divergence sensitivity
+            sensitivity_factor = 0.4 + 0.3 * phase_progress
             adjustment = divergence * (self.guidance_max - base_guidance) * sensitivity_factor
 
             guidance = base_guidance + adjustment
 
-        # Phase 3: Arrival (t < 0.3) - Controlled completion
+        # Phase 3: Arrival (t <= 0.15) - Controlled completion
+        # This is now final 15% instead of final 70% (BIG FIX!)
         else:
-            # Lower guidance but maintain minimum for prompt adherence
-            phase_progress = t_norm / 0.3  # 0 to 1 within this phase
+            # Gradual reduction but maintain strong minimum
+            phase_progress = t_norm / 0.15  # 0 to 1 within this phase
 
-            # Gradually reduce toward minimum
-            base_guidance = self.absolute_min_guidance + (self.guidance_max * 0.5 - self.absolute_min_guidance) * phase_progress
+            # Never go below 70% of max guidance, even in final phase
+            # This prevents the catastrophic drop
+            min_in_phase = self.guidance_max * 0.7  # MUCH higher than before
+            max_in_phase = self.guidance_max * 0.85
 
-            # More sensitive to divergence in final phase for detail refinement
-            adjustment = divergence * (self.guidance_max - base_guidance) * 0.6
+            base_guidance = min_in_phase + (max_in_phase - min_in_phase) * phase_progress
+
+            # Still responsive to divergence for detail refinement
+            adjustment = divergence * (self.guidance_max - base_guidance) * 0.5
 
             guidance = base_guidance + adjustment
 
         # Ensure smooth transitions and valid range
         guidance = max(self.guidance_min, min(self.guidance_max, guidance))
+
+        # CRITICAL FIX: Gradient limiting to prevent sudden drops
+        if self.previous_guidance is not None and self.flux_mode:
+            max_drop_per_step = 0.3  # Never drop more than 0.3 per step
+            if guidance < self.previous_guidance - max_drop_per_step:
+                guidance = self.previous_guidance - max_drop_per_step
+
+        # Update previous guidance for next step
+        self.previous_guidance = guidance
 
         return guidance
 
@@ -257,6 +277,7 @@ class AdaptiveGuidanceScheduler:
     def reset(self):
         """Reset the scheduler state."""
         self.current_step = 0
+        self.previous_guidance = None  # Reset gradient tracking
 
 
 class ITOSampler:
@@ -278,7 +299,7 @@ class ITOSampler:
         smoothing_window: int = 3,
         debug_mode: bool = False,
         flux_mode: bool = True,
-        absolute_min_guidance: float = 3.0,
+        absolute_min_guidance: float = 3.5,  # Raised from 3.0 to prevent guidance collapse
         divergence_scaling: float = 5.0,
     ):
         """
@@ -294,7 +315,7 @@ class ITOSampler:
             smoothing_window: EMA smoothing window size
             debug_mode: Enable detailed logging
             flux_mode: Enable Flux-specific optimizations (default: True)
-            absolute_min_guidance: Hard floor for guidance (Flux needs 3.0+, default: 3.0)
+            absolute_min_guidance: Hard floor for guidance (Flux needs 3.5+, default: 3.5)
             divergence_scaling: Scale Flux divergences by this factor (default: 5.0)
         """
         self.divergence_calculator = DivergenceCalculator(
