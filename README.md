@@ -53,11 +53,29 @@ Most dependencies are already included with ComfyUI:
 - NumPy >= 1.21.0
 - Matplotlib >= 3.5.0 (optional, for visualization)
 
+## Available Nodes
+
+This package provides three nodes:
+
+1. **ITO Flux Sampler** - Drop-in replacement for KSampler with adaptive guidance
+   - Returns: LATENT only
+   - Perfect for production use
+   - 100% compatible with standard workflows
+
+2. **ITO Flux Sampler (Debug)** - Same as above with visualization
+   - Returns: LATENT + debug plot IMAGE
+   - Shows divergence and guidance curves
+   - Prints detailed console output
+
+3. **ITO Guidance Schedule Visualizer** - Preview guidance schedules
+   - Helps tune parameters before sampling
+   - Shows how schedule responds to divergence
+
 ## Usage
 
 ### Basic Usage
 
-1. **Add the ITO Flux Sampler node** to your workflow
+1. **Add the ITO Flux Sampler node** to your workflow (replaces KSampler)
 2. **Connect inputs**:
    - Model (Flux Dev)
    - Positive/Negative conditioning
@@ -68,6 +86,8 @@ Most dependencies are already included with ComfyUI:
    - `divergence_type`: Type of divergence metric
    - `schedule_type`: Guidance schedule function
 4. **Run the workflow**
+
+**Note**: The ITO Flux Sampler is a **complete drop-in replacement** for KSampler. It has all the same inputs and outputs (LATENT), plus additional ITO parameters.
 
 ### Node Parameters
 
@@ -97,7 +117,9 @@ Most dependencies are already included with ComfyUI:
 | sensitivity | FLOAT | 1.0 | Sensitivity to divergence changes (0.1-5.0) |
 | warmup_steps | INT | 0 | Steps before adaptive guidance starts |
 | smoothing_window | INT | 3 | EMA smoothing window size |
-| debug_mode | BOOLEAN | False | Enable debug visualization |
+| debug_mode | BOOLEAN | False | Enable console output (ITO Flux Sampler only) |
+
+**Note**: For visual debug output, use the "ITO Flux Sampler (Debug)" node instead, which automatically includes visualization.
 
 ### Divergence Types
 
@@ -193,14 +215,33 @@ warmup_steps: 5
 smoothing_window: 5
 ```
 
-## Debug Mode
+## Debug and Visualization
 
-Enable `debug_mode` to receive:
+### Using ITO Flux Sampler (Debug)
+
+For detailed analysis and visualization, use the **ITO Flux Sampler (Debug)** node:
+
+**Features**:
 - **Console output**: Step-by-step divergence and guidance values
-- **Visualization plot**: Charts showing divergence and guidance evolution
+- **Visualization plot**: Real-time charts showing divergence and guidance curves
 - **Summary statistics**: Average values, ranges, and trends
+- **Debug plot output**: Second output (IMAGE) that can be saved or previewed
 
-The debug plot output can be connected to a `SaveImage` node for analysis.
+**Usage**:
+```
+ITO Flux Sampler (Debug)
+  ↓ (latent output)
+VAE Decode → Save Image
+  ↓ (debug_plot output)
+Preview Image or Save Image (to analyze metrics)
+```
+
+### Using Regular ITO Flux Sampler with Debug Mode
+
+The standard **ITO Flux Sampler** also has a `debug_mode` parameter:
+- When enabled: Prints console statistics only (no visual plot)
+- When disabled: Silent operation
+- Use this for production when you just want occasional console output
 
 ## Advanced Features
 

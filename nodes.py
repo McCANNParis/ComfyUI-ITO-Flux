@@ -50,10 +50,9 @@ class ITOFluxSampler:
             }
         }
 
-    RETURN_TYPES = ("LATENT", "IMAGE")
-    RETURN_NAMES = ("latent", "debug_plot")
+    RETURN_TYPES = ("LATENT",)
     FUNCTION = "sample"
-    CATEGORY = "sampling/custom"
+    CATEGORY = "sampling"
 
     def sample(
         self,
@@ -190,25 +189,204 @@ class ITOFluxSampler:
                 denoise=denoise
             )
 
-            # Create debug visualization
-            debug_plot = None
+            # Print debug summary if enabled
             if debug_mode:
-                debug_plot_tensor = metrics_collector.create_plot()
-                if debug_plot_tensor is not None:
-                    debug_plot = debug_plot_tensor
-                else:
-                    # Create empty tensor if visualization failed
-                    debug_plot = torch.zeros((1, 64, 64, 3))
-
-                # Print summary
                 summary = metrics_collector.get_summary()
                 print("\n=== ITO Sampling Summary ===")
                 for key, value in summary.items():
                     print(f"{key}: {value}")
                 print("=" * 40 + "\n")
+
+            return ({"samples": samples},)
+
+        finally:
+            # Restore original model
+            model.model = model_backup
+            ito_sampler.reset()
+
+
+class ITOFluxSamplerDebug:
+    """
+    ITO (Information-Theoretic Optimization) Sampler Node with Debug Output.
+
+    Same as ITOFluxSampler but includes visualization output for debugging.
+    Use this when you want to see the divergence and guidance curves.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
+                "cfg": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS,),
+                "positive": ("CONDITIONING",),
+                "negative": ("CONDITIONING",),
+                "latent_image": ("LATENT",),
+                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+
+                # ITO-specific parameters
+                "guidance_min": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
+                "guidance_max": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 20.0, "step": 0.1, "round": 0.01}),
+                "divergence_type": (["l2", "cosine", "kl_approx", "frequency"],),
+                "schedule_type": (["sigmoid", "linear", "exponential", "polynomial"],),
+                "sensitivity": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1, "round": 0.01}),
+                "warmup_steps": ("INT", {"default": 0, "min": 0, "max": 100}),
+                "smoothing_window": ("INT", {"default": 3, "min": 1, "max": 20}),
+            },
+        }
+
+    RETURN_TYPES = ("LATENT", "IMAGE")
+    RETURN_NAMES = ("latent", "debug_plot")
+    FUNCTION = "sample"
+    CATEGORY = "sampling"
+
+    def sample(
+        self,
+        model,
+        seed,
+        steps,
+        cfg,
+        sampler_name,
+        scheduler,
+        positive,
+        negative,
+        latent_image,
+        denoise,
+        guidance_min,
+        guidance_max,
+        divergence_type,
+        schedule_type,
+        sensitivity,
+        warmup_steps,
+        smoothing_window,
+    ):
+        """
+        Execute ITO sampling with debug visualization.
+        """
+        # Initialize ITO sampler with debug enabled
+        ito_sampler = ITOSampler(
+            divergence_type=divergence_type,
+            schedule_type=schedule_type,
+            guidance_min=guidance_min,
+            guidance_max=guidance_max,
+            sensitivity=sensitivity,
+            warmup_steps=warmup_steps,
+            smoothing_window=smoothing_window,
+            debug_mode=True  # Always enabled for debug node
+        )
+
+        # Create metrics collector
+        metrics_collector = MetricsCollector()
+
+        # Wrap the model to intercept CFG application
+        original_model = model.model
+
+        class ITOModelWrapper:
+            """Wrapper that applies ITO guidance instead of standard CFG."""
+
+            def __init__(self, model, ito_sampler, metrics_collector):
+                self.model = model
+                self.ito_sampler = ito_sampler
+                self.metrics_collector = metrics_collector
+                self.step_counter = 0
+                self.total_steps = steps
+
+            def apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options=None, **kwargs):
+                """
+                Intercept model application to apply ITO guidance.
+                """
+                # Check if we have both cond and uncond in the batch
+                if x.shape[0] == 2:
+                    # Split into cond and uncond
+                    x_cond = x[0:1]
+                    x_uncond = x[1:2]
+
+                    # Process conditional
+                    if c_crossattn is not None and len(c_crossattn) == 2:
+                        out_cond = self.model.apply_model(
+                            x_cond, t, c_concat=c_concat[0:1] if c_concat is not None else None,
+                            c_crossattn=c_crossattn[0:1],
+                            control=control, transformer_options=transformer_options, **kwargs
+                        )
+                        out_uncond = self.model.apply_model(
+                            x_uncond, t, c_concat=c_concat[1:2] if c_concat is not None else None,
+                            c_crossattn=c_crossattn[1:2],
+                            control=control, transformer_options=transformer_options, **kwargs
+                        )
+                    else:
+                        # Fallback: just run the model normally
+                        return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
+                                                     control=control, transformer_options=transformer_options, **kwargs)
+
+                    # Apply ITO guidance
+                    guided_output, debug_info = self.ito_sampler.apply_guidance(
+                        out_cond,
+                        out_uncond,
+                        timestep=self.step_counter,
+                        total_steps=self.total_steps
+                    )
+
+                    # Collect metrics
+                    self.metrics_collector.add_step(debug_info)
+                    from .visualization import print_debug_info
+                    print_debug_info(debug_info, self.step_counter)
+
+                    self.step_counter += 1
+
+                    # Return guided output for both positions (ComfyUI expects batch)
+                    return torch.cat([guided_output, guided_output], dim=0)
+                else:
+                    # Single input, just pass through
+                    return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
+                                                 control=control, transformer_options=transformer_options, **kwargs)
+
+            def __getattr__(self, name):
+                """Pass through all other attributes to the wrapped model."""
+                return getattr(self.model, name)
+
+        # Create wrapped model
+        wrapped_model = ITOModelWrapper(original_model, ito_sampler, metrics_collector)
+
+        # Temporarily replace the model
+        model_backup = model.model
+        model.model = wrapped_model
+
+        try:
+            # Use ComfyUI's standard sampling with our wrapped model
+            latent = latent_image["samples"]
+
+            # Run sampling
+            samples = comfy.sample.sample(
+                model,
+                seed,
+                steps,
+                cfg,  # This will be overridden by ITO
+                sampler_name,
+                scheduler,
+                positive,
+                negative,
+                latent,
+                denoise=denoise
+            )
+
+            # Create debug visualization
+            debug_plot_tensor = metrics_collector.create_plot()
+            if debug_plot_tensor is not None:
+                debug_plot = debug_plot_tensor
             else:
-                # Return empty debug plot
+                # Create empty tensor if visualization failed
                 debug_plot = torch.zeros((1, 64, 64, 3))
+
+            # Print summary
+            summary = metrics_collector.get_summary()
+            print("\n=== ITO Sampling Summary ===")
+            for key, value in summary.items():
+                print(f"{key}: {value}")
+            print("=" * 40 + "\n")
 
             return ({"samples": samples}, debug_plot)
 
@@ -305,10 +483,12 @@ class ITOFluxGuidanceSchedule:
 # Node mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
     "ITOFluxSampler": ITOFluxSampler,
+    "ITOFluxSamplerDebug": ITOFluxSamplerDebug,
     "ITOFluxGuidanceSchedule": ITOFluxGuidanceSchedule,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ITOFluxSampler": "ITO Flux Sampler",
+    "ITOFluxSamplerDebug": "ITO Flux Sampler (Debug)",
     "ITOFluxGuidanceSchedule": "ITO Guidance Schedule Visualizer",
 }

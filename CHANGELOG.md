@@ -5,6 +5,24 @@ All notable changes to ComfyUI-ITO-Flux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2024-10-25
+
+### Changed
+- **BREAKING**: Split ITO Flux Sampler into two nodes for better compatibility
+  - **ITO Flux Sampler**: Now returns only LATENT (drop-in KSampler replacement)
+  - **ITO Flux Sampler (Debug)**: Returns LATENT + debug plot IMAGE
+- Changed category from "sampling/custom" to "sampling" for better organization
+- Debug mode parameter in main node now only controls console output
+
+### Added
+- True drop-in replacement for KSampler with identical return types
+- Separate debug node for users who want visualization
+- Better documentation explaining the two node types
+
+### Fixed
+- Return type compatibility with standard ComfyUI workflows
+- Users can now directly replace KSampler without workflow modifications
+
 ## [1.0.0] - 2024-10-25
 
 ### Added

@@ -228,19 +228,24 @@ Look for differences in:
 
 ### Enabling Debug Visualization
 
-Set `debug_mode: true` to receive:
+Use the **ITO Flux Sampler (Debug)** node for full visualization:
 
+**Features**:
 1. **Console Output**: Real-time metrics printed to console
-2. **Debug Plot**: Visual graph of divergence and guidance over time
+2. **Debug Plot**: Visual graph of divergence and guidance over time (as IMAGE output)
+3. **Summary Statistics**: Printed at the end of sampling
 
 **Example debug workflow**:
 ```
-ITO Flux Sampler (debug_mode=true)
-  ↓ (latent output)
-VAE Decode → Save Image
-  ↓ (debug_plot output)
-Save Image (separate, for metrics visualization)
+ITO Flux Sampler (Debug)
+  ↓ (latent output)        ↓ (debug_plot output)
+  ↓                         ↓
+VAE Decode              Preview/Save Image
+  ↓                    (metrics visualization)
+Save Image
 ```
+
+**Alternative**: Use regular **ITO Flux Sampler** with `debug_mode=true` for console-only output (no visual plot).
 
 **What to look for in debug plots**:
 - **Divergence curve**: Should show variation across steps
