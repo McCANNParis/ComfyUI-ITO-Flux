@@ -140,6 +140,10 @@ class DivergenceCalculator:
 
         # Handle different tensor shapes
         if pred_cond.dim() == 4:
+            # Get original spatial dimensions BEFORE FFT
+            # This is important because rfft2 changes the last dimension size
+            h, w = pred_cond.shape[-2:]
+
             # Process in spatial frequency domain
             fft_cond = torch.fft.rfft2(pred_cond, norm="ortho")
             fft_uncond = torch.fft.rfft2(pred_uncond, norm="ortho")
@@ -148,8 +152,7 @@ class DivergenceCalculator:
             mag_diff = torch.abs(torch.abs(fft_cond) - torch.abs(fft_uncond))
 
             # Weight high frequencies more (optional)
-            # Create frequency weighting mask
-            h, w = mag_diff.shape[-2:]
+            # Create frequency weighting mask using ORIGINAL spatial dimensions
             y_freq = torch.fft.fftfreq(h, device=mag_diff.device)[:, None]
             x_freq = torch.fft.rfftfreq(w, device=mag_diff.device)[None, :]
             freq_magnitude = torch.sqrt(y_freq**2 + x_freq**2)
