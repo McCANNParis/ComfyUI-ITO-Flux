@@ -21,7 +21,7 @@ class AdaptiveGuidanceScheduler:
         self,
         guidance_min: float = 1.0,
         guidance_max: float = 3.5,
-        schedule_type: Literal["sigmoid", "linear", "exponential", "polynomial"] = "sigmoid",
+        schedule_type: Literal["sigmoid", "linear", "exponential", "polynomial", "flow_aware"] = "sigmoid",
         sensitivity: float = 1.0,
         warmup_steps: int = 0,
         flux_mode: bool = True,
@@ -98,6 +98,8 @@ class AdaptiveGuidanceScheduler:
             guidance = self._exponential_schedule(adjusted_divergence)
         elif self.schedule_type == "polynomial":
             guidance = self._polynomial_schedule(adjusted_divergence)
+        elif self.schedule_type == "flow_aware":
+            guidance = self._flow_aware_schedule(adjusted_divergence, timestep, total_steps)
         else:
             raise ValueError(f"Unknown schedule type: {self.schedule_type}")
 
@@ -152,6 +154,80 @@ class AdaptiveGuidanceScheduler:
         poly_val = divergence ** 2
 
         guidance = self.guidance_min + (self.guidance_max - self.guidance_min) * poly_val
+        return guidance
+
+    def _flow_aware_schedule(
+        self,
+        divergence: float,
+        timestep: Optional[int] = None,
+        total_steps: Optional[int] = None
+    ) -> float:
+        """
+        Flow-matching-aware schedule with phase-based guidance.
+
+        Designed specifically for flow matching models like Flux Dev.
+        Uses three phases:
+        1. Establishment (t > 0.7): High, consistent guidance to set trajectory
+        2. Trajectory (0.3 < t < 0.7): Adaptive guidance with smooth transitions
+        3. Arrival (t < 0.3): Controlled reduction with hard minimum
+
+        Args:
+            divergence: Adjusted divergence value
+            timestep: Current timestep (if None, uses balanced approach)
+            total_steps: Total number of steps
+
+        Returns:
+            Phase-appropriate guidance scale
+        """
+        # Calculate normalized timestep (1.0 = start, 0.0 = end)
+        if timestep is not None and total_steps is not None:
+            # For flow matching, timesteps often go from high to low
+            # Normalize to [0, 1] where 1 = start, 0 = end
+            t_norm = 1.0 - (timestep / max(total_steps - 1, 1))
+        else:
+            # Default to middle of trajectory phase
+            t_norm = 0.5
+
+        # Phase 1: Establishment (t > 0.7) - Set correct flow direction
+        if t_norm > 0.7:
+            # High guidance to establish trajectory
+            # Less responsive to divergence in this phase
+            base_guidance = self.guidance_max * 0.9
+            # Allow small adjustment based on divergence
+            adjustment = divergence * (self.guidance_max - base_guidance) * 0.3
+            guidance = base_guidance + adjustment
+
+        # Phase 2: Trajectory (0.3 < t < 0.7) - Follow established flow
+        elif t_norm > 0.3:
+            # Moderate, adaptive guidance
+            # More responsive to divergence but with smooth transitions
+            phase_progress = (t_norm - 0.3) / 0.4  # 0 to 1 within this phase
+
+            # Start high, gradually allow more adaptation
+            base_guidance = self.guidance_max * (0.7 + 0.2 * (1.0 - phase_progress))
+
+            # Smoothly increase divergence sensitivity as we progress
+            sensitivity_factor = 0.3 + 0.4 * (1.0 - phase_progress)
+            adjustment = divergence * (self.guidance_max - base_guidance) * sensitivity_factor
+
+            guidance = base_guidance + adjustment
+
+        # Phase 3: Arrival (t < 0.3) - Controlled completion
+        else:
+            # Lower guidance but maintain minimum for prompt adherence
+            phase_progress = t_norm / 0.3  # 0 to 1 within this phase
+
+            # Gradually reduce toward minimum
+            base_guidance = self.absolute_min_guidance + (self.guidance_max * 0.5 - self.absolute_min_guidance) * phase_progress
+
+            # More sensitive to divergence in final phase for detail refinement
+            adjustment = divergence * (self.guidance_max - base_guidance) * 0.6
+
+            guidance = base_guidance + adjustment
+
+        # Ensure smooth transitions and valid range
+        guidance = max(self.guidance_min, min(self.guidance_max, guidance))
+
         return guidance
 
     def _apply_timestep_weighting(
@@ -256,19 +332,26 @@ class ITOSampler:
         Calculate adaptive guidance scale based on model outputs.
 
         Args:
-            model_output_cond: Conditional model output
-            model_output_uncond: Unconditional model output
+            model_output_cond: Conditional model output (velocity field for Flux)
+            model_output_uncond: Unconditional model output (velocity field for Flux)
             timestep: Current timestep
             total_steps: Total number of sampling steps
 
         Returns:
             Tuple of (guidance_scale, debug_info)
         """
-        # Calculate divergence
+        # Calculate normalized timestep for flow-aware metrics
+        timestep_float = None
+        if timestep is not None and total_steps is not None:
+            # Normalize to [0, 1] where 1 = start, 0 = end
+            timestep_float = 1.0 - (timestep / max(total_steps - 1, 1))
+
+        # Calculate divergence (with optional timestep_float for flow_angular)
         divergence = self.divergence_calculator.calculate(
             model_output_cond,
             model_output_uncond,
-            timestep
+            timestep,
+            timestep_float
         )
 
         # Get normalized divergence

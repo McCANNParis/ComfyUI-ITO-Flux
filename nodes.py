@@ -38,8 +38,8 @@ class ITOFluxSampler:
                 # ITO-specific parameters
                 "guidance_min": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
                 "guidance_max": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 20.0, "step": 0.1, "round": 0.01}),
-                "divergence_type": (["l2", "cosine", "kl_approx", "frequency"],),
-                "schedule_type": (["sigmoid", "linear", "exponential", "polynomial"],),
+                "divergence_type": (["l2", "cosine", "kl_approx", "frequency", "angular", "flow_angular"],),
+                "schedule_type": (["sigmoid", "linear", "exponential", "polynomial", "flow_aware"],),
                 "sensitivity": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1, "round": 0.01}),
                 "warmup_steps": ("INT", {"default": 0, "min": 0, "max": 100}),
                 "smoothing_window": ("INT", {"default": 3, "min": 1, "max": 20}),
@@ -225,8 +225,8 @@ class ITOFluxSamplerDebug:
                 # ITO-specific parameters
                 "guidance_min": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
                 "guidance_max": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 20.0, "step": 0.1, "round": 0.01}),
-                "divergence_type": (["l2", "cosine", "kl_approx", "frequency"],),
-                "schedule_type": (["sigmoid", "linear", "exponential", "polynomial"],),
+                "divergence_type": (["l2", "cosine", "kl_approx", "frequency", "angular", "flow_angular"],),
+                "schedule_type": (["sigmoid", "linear", "exponential", "polynomial", "flow_aware"],),
                 "sensitivity": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1, "round": 0.01}),
                 "warmup_steps": ("INT", {"default": 0, "min": 0, "max": 100}),
                 "smoothing_window": ("INT", {"default": 3, "min": 1, "max": 20}),

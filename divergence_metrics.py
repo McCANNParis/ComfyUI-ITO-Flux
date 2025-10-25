@@ -19,7 +19,7 @@ class DivergenceCalculator:
 
     def __init__(
         self,
-        divergence_type: Literal["l2", "cosine", "kl_approx", "frequency"] = "l2",
+        divergence_type: Literal["l2", "cosine", "kl_approx", "frequency", "angular", "flow_angular"] = "l2",
         smoothing_window: int = 3,
         device: str = "cuda"
     ):
@@ -48,15 +48,17 @@ class DivergenceCalculator:
         self,
         pred_cond: torch.Tensor,
         pred_uncond: torch.Tensor,
-        timestep: Optional[int] = None
+        timestep: Optional[int] = None,
+        timestep_float: Optional[float] = None
     ) -> float:
         """
         Calculate divergence between conditional and unconditional predictions.
 
         Args:
-            pred_cond: Conditional prediction from the model
-            pred_uncond: Unconditional prediction from the model
+            pred_cond: Conditional prediction from the model (velocity field for Flux)
+            pred_uncond: Unconditional prediction from the model (velocity field for Flux)
             timestep: Current timestep (optional, used for some metrics)
+            timestep_float: Normalized timestep [0, 1] for flow matching (optional)
 
         Returns:
             Divergence value as a float
@@ -69,6 +71,10 @@ class DivergenceCalculator:
             divergence = self._kl_approx_divergence(pred_cond, pred_uncond)
         elif self.divergence_type == "frequency":
             divergence = self._frequency_divergence(pred_cond, pred_uncond)
+        elif self.divergence_type == "angular":
+            divergence = self._angular_divergence(pred_cond, pred_uncond)
+        elif self.divergence_type == "flow_angular":
+            divergence = self._flow_angular_divergence(pred_cond, pred_uncond, timestep_float)
         else:
             raise ValueError(f"Unknown divergence type: {self.divergence_type}")
 
@@ -168,6 +174,90 @@ class DivergenceCalculator:
             return divergence
 
         return divergence.item()
+
+    def _angular_divergence(self, pred_cond: torch.Tensor, pred_uncond: torch.Tensor) -> float:
+        """
+        Calculate angular divergence for flow matching models.
+        Measures the direction change between velocity fields.
+
+        For flow matching (like Flux), velocity fields are vectors that guide
+        the denoising trajectory. Angular divergence captures how much the
+        conditional and unconditional flows point in different directions.
+
+        Returns: 0 = same direction, 2 = opposite directions
+        """
+        # Flatten tensors to treat as high-dimensional vectors
+        v_cond = pred_cond.flatten(1)  # [batch, features]
+        v_uncond = pred_uncond.flatten(1)
+
+        # Calculate cosine similarity between velocity vectors
+        # This gives us the angular relationship
+        cos_sim = F.cosine_similarity(v_cond, v_uncond, dim=1)
+
+        # Convert to angular divergence
+        # cos_sim ranges from -1 (opposite) to 1 (same direction)
+        # We want: 0 (same) to 2 (opposite)
+        angular_div = 1.0 - cos_sim
+
+        # Average across batch if needed
+        if angular_div.numel() > 1:
+            angular_div = angular_div.mean()
+
+        return angular_div.item()
+
+    def _flow_angular_divergence(
+        self,
+        pred_cond: torch.Tensor,
+        pred_uncond: torch.Tensor,
+        timestep_float: Optional[float] = None
+    ) -> float:
+        """
+        Combined flow-matching divergence: angular + magnitude with phase weighting.
+
+        This is specifically designed for flow matching models like Flux Dev:
+        1. Angular divergence: Direction change between velocity fields
+        2. Magnitude divergence: Difference in flow speeds
+        3. Phase weighting: Early timesteps prioritize direction, late prioritize magnitude
+
+        Args:
+            pred_cond: Conditional velocity field
+            pred_uncond: Unconditional velocity field
+            timestep_float: Normalized timestep [0, 1] where 1 = start, 0 = end
+
+        Returns:
+            Combined divergence value
+        """
+        # Flatten to treat as vectors
+        v_cond = pred_cond.flatten(1)
+        v_uncond = pred_uncond.flatten(1)
+
+        # 1. Angular divergence (direction change)
+        cos_sim = F.cosine_similarity(v_cond, v_uncond, dim=1)
+        angular_div = (1.0 - cos_sim).mean()  # 0 = same, 2 = opposite
+
+        # 2. Magnitude divergence (speed difference)
+        mag_cond = torch.norm(v_cond, p=2, dim=1)
+        mag_uncond = torch.norm(v_uncond, p=2, dim=1)
+        mag_diff = torch.abs(mag_cond - mag_uncond).mean()
+
+        # Normalize magnitude difference by average magnitude
+        avg_mag = (mag_cond.mean() + mag_uncond.mean()) / 2.0
+        mag_div = mag_diff / (avg_mag + 1e-8)
+
+        # 3. Phase-aware weighting
+        if timestep_float is not None:
+            # timestep_float: 1.0 = start of flow, 0.0 = end of flow
+            # Early in flow (t close to 1): direction matters more
+            # Late in flow (t close to 0): magnitude matters more
+            phase_weight = timestep_float
+        else:
+            # Default to balanced weighting
+            phase_weight = 0.5
+
+        # Combine: early = more angular, late = more magnitude
+        combined_div = phase_weight * angular_div + (1.0 - phase_weight) * mag_div
+
+        return combined_div.item()
 
     def _update_statistics(self, divergence: float):
         """Update running statistics for normalization."""

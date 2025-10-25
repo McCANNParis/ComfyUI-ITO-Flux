@@ -5,6 +5,42 @@ All notable changes to ComfyUI-ITO-Flux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-10-25
+
+### Added
+- **Flow-matching-aware ITO** - Complete redesign for Flux's flow matching architecture
+  - `angular` divergence type: Measures direction changes in velocity fields (best for flow matching)
+  - `flow_angular` divergence type: Combined angular + magnitude with phase weighting
+  - `flow_aware` schedule type: Phase-based guidance (establishment/trajectory/arrival)
+- Three-phase guidance strategy optimized for flow matching:
+  - **Establishment phase** (t > 0.7): High, consistent guidance to set trajectory direction
+  - **Trajectory phase** (0.3 < t < 0.7): Adaptive guidance with smooth transitions
+  - **Arrival phase** (t < 0.3): Controlled reduction while maintaining minimum for prompt adherence
+- Phase-aware divergence weighting: Early steps prioritize direction, late steps prioritize magnitude
+- Smooth trajectory consistency: Prevents guidance jumps that break flow paths
+
+### Changed
+- **BREAKING**: Divergence now correctly interprets Flux's velocity fields vs SDXL's noise predictions
+- Enhanced divergence calculator with optional `timestep_float` parameter for flow-aware metrics
+- Improved documentation explaining flow matching vs diffusion differences
+
+### Technical Details
+- Flow matching uses velocity fields that guide ODE trajectories, not noise predictions
+- Angular divergence (direction) is more important than L2 divergence (magnitude) for flows
+- Phase-based scheduling maintains trajectory consistency critical for flow matching
+- Combined metrics weight angular divergence higher early, magnitude divergence higher late
+
+### Recommended Settings for Flux Dev
+- **Divergence type**: `flow_angular` (best) or `angular` (simpler)
+- **Schedule type**: `flow_aware` (optimal for flow matching)
+- **Guidance range**: 3.0-5.0 (narrower than diffusion models)
+- **Sensitivity**: 1.0-1.5 (lower than diffusion, flows are sensitive to changes)
+
+### Migration from 1.0.x
+- Existing workflows will continue working with improved defaults
+- For best results with Flux, switch to `flow_angular` + `flow_aware`
+- Non-Flux models can continue using original settings (`l2` + `sigmoid`)
+
 ## [1.0.6] - 2025-10-25
 
 ### Added
