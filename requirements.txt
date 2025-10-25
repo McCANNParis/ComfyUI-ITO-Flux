@@ -1,0 +1,17 @@
+# ComfyUI-ITO-Flux Requirements
+# Core dependencies - most should already be available in ComfyUI
+
+# PyTorch (usually already installed with ComfyUI)
+# torch>=2.0.0
+
+# Numpy for numerical operations
+numpy>=1.21.0
+
+# Matplotlib for visualization (optional but recommended)
+matplotlib>=3.5.0
+
+# Pillow for image handling (usually included with ComfyUI)
+# pillow>=9.0.0
+
+# Note: ComfyUI itself and its dependencies (like torchvision, etc.)
+# are expected to be already installed in your ComfyUI environment.
