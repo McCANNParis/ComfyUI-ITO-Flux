@@ -5,6 +5,21 @@ All notable changes to ComfyUI-ITO-Flux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2024-10-25
+
+### Fixed
+- Fixed RuntimeError: output shape mismatch in Flux model
+- Changed approach: now call model once with full batch, then apply ITO to outputs
+- No longer manually splitting inputs (which caused shape mismatches with Flux's complex conditioning)
+- Properly handles Flux's batch processing and all conditioning parameters in **kwargs
+- Applied fix to both ITOFluxSampler and ITOFluxSamplerDebug
+
+### Technical Details
+- Previous approach tried to split inputs and call model twice
+- This failed because Flux has additional conditioning params that weren't being split
+- New approach: call model once, split outputs, calculate divergence, apply guidance
+- More efficient and handles all model architectures correctly
+
 ## [1.0.3] - 2024-10-25
 
 ### Fixed

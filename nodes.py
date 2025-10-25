@@ -110,31 +110,17 @@ class ITOFluxSampler:
                 """
                 Intercept model application to apply ITO guidance.
                 """
-                # Handle both conditional and unconditional in batch
-                # Flux typically processes them together
+                # Call the model normally with full batch
+                # This handles all the complex parameter passing automatically
+                output = self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
+                                                control=control, transformer_options=transformer_options, **kwargs)
 
                 # Check if we have both cond and uncond in the batch
-                if x.shape[0] == 2:
-                    # Split into cond and uncond
-                    x_cond = x[0:1]
-                    x_uncond = x[1:2]
-
-                    # Process conditional
-                    if c_crossattn is not None and len(c_crossattn) == 2:
-                        out_cond = self.model.apply_model(
-                            x_cond, t, c_concat=c_concat[0:1] if c_concat is not None else None,
-                            c_crossattn=c_crossattn[0:1],
-                            control=control, transformer_options=transformer_options, **kwargs
-                        )
-                        out_uncond = self.model.apply_model(
-                            x_uncond, t, c_concat=c_concat[1:2] if c_concat is not None else None,
-                            c_crossattn=c_crossattn[1:2],
-                            control=control, transformer_options=transformer_options, **kwargs
-                        )
-                    else:
-                        # Fallback: just run the model normally
-                        return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
-                                                     control=control, transformer_options=transformer_options, **kwargs)
+                if output.shape[0] == 2:
+                    # Split output into uncond and cond
+                    # ComfyUI convention: batch is [uncond, cond]
+                    out_uncond = output[0:1]
+                    out_cond = output[1:2]
 
                     # Apply ITO guidance
                     guided_output, debug_info = self.ito_sampler.apply_guidance(
@@ -152,12 +138,12 @@ class ITOFluxSampler:
 
                     self.step_counter += 1
 
-                    # Return guided output for both positions (ComfyUI expects batch)
-                    return torch.cat([guided_output, guided_output], dim=0)
+                    # Return batch with uncond and guided output
+                    # Keep uncond unchanged, replace cond with guided
+                    return torch.cat([out_uncond, guided_output], dim=0)
                 else:
                     # Single input, just pass through
-                    return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
-                                                 control=control, transformer_options=transformer_options, **kwargs)
+                    return output
 
             def __getattr__(self, name):
                 """Pass through all other attributes to the wrapped model."""
@@ -296,28 +282,17 @@ class ITOFluxSamplerDebug:
                 """
                 Intercept model application to apply ITO guidance.
                 """
-                # Check if we have both cond and uncond in the batch
-                if x.shape[0] == 2:
-                    # Split into cond and uncond
-                    x_cond = x[0:1]
-                    x_uncond = x[1:2]
+                # Call the model normally with full batch
+                # This handles all the complex parameter passing automatically
+                output = self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
+                                                control=control, transformer_options=transformer_options, **kwargs)
 
-                    # Process conditional
-                    if c_crossattn is not None and len(c_crossattn) == 2:
-                        out_cond = self.model.apply_model(
-                            x_cond, t, c_concat=c_concat[0:1] if c_concat is not None else None,
-                            c_crossattn=c_crossattn[0:1],
-                            control=control, transformer_options=transformer_options, **kwargs
-                        )
-                        out_uncond = self.model.apply_model(
-                            x_uncond, t, c_concat=c_concat[1:2] if c_concat is not None else None,
-                            c_crossattn=c_crossattn[1:2],
-                            control=control, transformer_options=transformer_options, **kwargs
-                        )
-                    else:
-                        # Fallback: just run the model normally
-                        return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
-                                                     control=control, transformer_options=transformer_options, **kwargs)
+                # Check if we have both cond and uncond in the batch
+                if output.shape[0] == 2:
+                    # Split output into uncond and cond
+                    # ComfyUI convention: batch is [uncond, cond]
+                    out_uncond = output[0:1]
+                    out_cond = output[1:2]
 
                     # Apply ITO guidance
                     guided_output, debug_info = self.ito_sampler.apply_guidance(
@@ -334,12 +309,12 @@ class ITOFluxSamplerDebug:
 
                     self.step_counter += 1
 
-                    # Return guided output for both positions (ComfyUI expects batch)
-                    return torch.cat([guided_output, guided_output], dim=0)
+                    # Return batch with uncond and guided output
+                    # Keep uncond unchanged, replace cond with guided
+                    return torch.cat([out_uncond, guided_output], dim=0)
                 else:
                     # Single input, just pass through
-                    return self.model.apply_model(x, t, c_concat=c_concat, c_crossattn=c_crossattn,
-                                                 control=control, transformer_options=transformer_options, **kwargs)
+                    return output
 
             def __getattr__(self, name):
                 """Pass through all other attributes to the wrapped model."""
