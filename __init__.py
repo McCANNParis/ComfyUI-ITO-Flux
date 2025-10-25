@@ -11,7 +11,7 @@ License: MIT
 from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
 # Version info
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 __author__ = "Claude Code"
 
 # ComfyUI expects these exports

@@ -5,6 +5,36 @@ All notable changes to ComfyUI-ITO-Flux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2025-10-25
+
+### Added
+- **Flux-specific optimizations** to prevent guidance collapse and mode failure
+  - `flux_mode` parameter (default: True) - enables Flux-specific fixes
+  - `absolute_min_guidance` parameter (default: 3.0) - hard floor for guidance scale
+  - `divergence_scaling` parameter (default: 5.0) - scales up Flux's low divergences
+- All three parameters exposed in both ITOFluxSampler and ITOFluxSamplerDebug nodes
+
+### Fixed
+- **Critical: Guidance collapse with Flux Dev**
+  - Flux has divergences 5-10x smaller than SDXL (0.005-0.020 vs 0.1-0.5)
+  - Previous versions allowed guidance to drop to 1.0-1.5, causing prompt abandonment
+  - Flux requires minimum 3.0 guidance to follow prompts correctly
+- **Divergence scaling**: Now multiplies Flux divergences by 5.0 before mapping to guidance range
+- **Absolute minimum enforcement**: Never allows guidance below 3.0 when flux_mode=True
+- Prevents mode collapse (abstract blobs) that occurred with low guidance values
+
+### Technical Details
+- Modified `AdaptiveGuidanceScheduler.get_guidance_scale()` with two-stage fix:
+  1. Scale normalized divergence by `divergence_scaling` factor before schedule calculation
+  2. Enforce `absolute_min_guidance` floor after schedule calculation
+- Flux's natural divergences (0.001-0.003 normalized) now map to useful guidance range (3.0+)
+- Allows ITO adaptation while maintaining minimum guidance for prompt adherence
+
+### Migration Notes
+- **No breaking changes**: Existing workflows continue to work with improved defaults
+- For non-Flux models: Set `flux_mode=False` to disable these optimizations
+- Advanced users can tune `divergence_scaling` and `absolute_min_guidance` for their models
+
 ## [1.0.5] - 2024-10-25
 
 ### Fixed

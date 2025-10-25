@@ -43,6 +43,11 @@ class ITOFluxSampler:
                 "sensitivity": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1, "round": 0.01}),
                 "warmup_steps": ("INT", {"default": 0, "min": 0, "max": 100}),
                 "smoothing_window": ("INT", {"default": 3, "min": 1, "max": 20}),
+
+                # Flux-specific parameters
+                "flux_mode": ("BOOLEAN", {"default": True}),
+                "absolute_min_guidance": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
+                "divergence_scaling": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0, "step": 0.1, "round": 0.01}),
             },
             "optional": {
                 "debug_mode": ("BOOLEAN", {"default": False}),
@@ -72,6 +77,9 @@ class ITOFluxSampler:
         sensitivity,
         warmup_steps,
         smoothing_window,
+        flux_mode,
+        absolute_min_guidance,
+        divergence_scaling,
         debug_mode=False
     ):
         """
@@ -86,7 +94,10 @@ class ITOFluxSampler:
             sensitivity=sensitivity,
             warmup_steps=warmup_steps,
             smoothing_window=smoothing_window,
-            debug_mode=debug_mode
+            debug_mode=debug_mode,
+            flux_mode=flux_mode,
+            absolute_min_guidance=absolute_min_guidance,
+            divergence_scaling=divergence_scaling
         )
 
         # Create metrics collector
@@ -219,6 +230,11 @@ class ITOFluxSamplerDebug:
                 "sensitivity": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1, "round": 0.01}),
                 "warmup_steps": ("INT", {"default": 0, "min": 0, "max": 100}),
                 "smoothing_window": ("INT", {"default": 3, "min": 1, "max": 20}),
+
+                # Flux-specific parameters
+                "flux_mode": ("BOOLEAN", {"default": True}),
+                "absolute_min_guidance": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 10.0, "step": 0.1, "round": 0.01}),
+                "divergence_scaling": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0, "step": 0.1, "round": 0.01}),
             },
         }
 
@@ -246,6 +262,9 @@ class ITOFluxSamplerDebug:
         sensitivity,
         warmup_steps,
         smoothing_window,
+        flux_mode,
+        absolute_min_guidance,
+        divergence_scaling,
     ):
         """
         Execute ITO sampling with debug visualization.
@@ -259,7 +278,10 @@ class ITOFluxSamplerDebug:
             sensitivity=sensitivity,
             warmup_steps=warmup_steps,
             smoothing_window=smoothing_window,
-            debug_mode=True  # Always enabled for debug node
+            debug_mode=True,  # Always enabled for debug node
+            flux_mode=flux_mode,
+            absolute_min_guidance=absolute_min_guidance,
+            divergence_scaling=divergence_scaling
         )
 
         # Create metrics collector

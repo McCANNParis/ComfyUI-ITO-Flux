@@ -14,6 +14,7 @@ from .divergence_metrics import DivergenceCalculator
 class AdaptiveGuidanceScheduler:
     """
     Manages adaptive guidance scaling based on divergence measurements.
+    Flux-optimized with safeguards against guidance collapse.
     """
 
     def __init__(
@@ -23,6 +24,9 @@ class AdaptiveGuidanceScheduler:
         schedule_type: Literal["sigmoid", "linear", "exponential", "polynomial"] = "sigmoid",
         sensitivity: float = 1.0,
         warmup_steps: int = 0,
+        flux_mode: bool = True,
+        absolute_min_guidance: float = 3.0,
+        divergence_scaling: float = 5.0,
     ):
         """
         Initialize the adaptive guidance scheduler.
@@ -33,12 +37,20 @@ class AdaptiveGuidanceScheduler:
             schedule_type: Type of schedule function
             sensitivity: How responsive guidance is to divergence (higher = more responsive)
             warmup_steps: Number of steps before adaptive guidance kicks in
+            flux_mode: Enable Flux-specific optimizations (default: True)
+            absolute_min_guidance: Hard floor for guidance (Flux needs 3.0+ for prompts)
+            divergence_scaling: Multiply divergence by this factor for Flux (default: 5.0)
         """
         self.guidance_min = guidance_min
         self.guidance_max = guidance_max
         self.schedule_type = schedule_type
         self.sensitivity = sensitivity
         self.warmup_steps = warmup_steps
+
+        # Flux-specific parameters
+        self.flux_mode = flux_mode
+        self.absolute_min_guidance = absolute_min_guidance
+        self.divergence_scaling = divergence_scaling
 
         self.current_step = 0
 
@@ -50,6 +62,7 @@ class AdaptiveGuidanceScheduler:
     ) -> float:
         """
         Calculate the adaptive guidance scale based on divergence.
+        Includes Flux-specific optimizations to prevent guidance collapse.
 
         Args:
             normalized_divergence: Divergence value normalized to [0, 1]
@@ -63,8 +76,18 @@ class AdaptiveGuidanceScheduler:
         if self.current_step < self.warmup_steps:
             return self.guidance_max
 
+        # FLUX FIX: Scale divergence up for Flux's lower natural divergences
+        if self.flux_mode:
+            # Flux has divergences 5-10x smaller than SDXL
+            # Scale them up so the scheduler responds appropriately
+            scaled_divergence = normalized_divergence * self.divergence_scaling
+            # Clamp to [0, 1] after scaling
+            scaled_divergence = max(0.0, min(1.0, scaled_divergence))
+        else:
+            scaled_divergence = normalized_divergence
+
         # Apply sensitivity
-        adjusted_divergence = normalized_divergence * self.sensitivity
+        adjusted_divergence = scaled_divergence * self.sensitivity
 
         # Map divergence to guidance scale using selected schedule
         if self.schedule_type == "sigmoid":
@@ -81,6 +104,11 @@ class AdaptiveGuidanceScheduler:
         # Incorporate timestep-based weighting if available
         if timestep is not None and total_steps is not None:
             guidance = self._apply_timestep_weighting(guidance, timestep, total_steps)
+
+        # FLUX FIX: Enforce absolute minimum guidance
+        # Flux needs at least 3.0 guidance to follow prompts properly
+        if self.flux_mode:
+            guidance = max(guidance, self.absolute_min_guidance)
 
         return guidance
 
@@ -173,9 +201,12 @@ class ITOSampler:
         warmup_steps: int = 0,
         smoothing_window: int = 3,
         debug_mode: bool = False,
+        flux_mode: bool = True,
+        absolute_min_guidance: float = 3.0,
+        divergence_scaling: float = 5.0,
     ):
         """
-        Initialize ITO sampler.
+        Initialize ITO sampler with Flux-specific optimizations.
 
         Args:
             divergence_type: Type of divergence metric ('l2', 'cosine', 'kl_approx', 'frequency')
@@ -186,6 +217,9 @@ class ITOSampler:
             warmup_steps: Steps before adaptive guidance starts
             smoothing_window: EMA smoothing window size
             debug_mode: Enable detailed logging
+            flux_mode: Enable Flux-specific optimizations (default: True)
+            absolute_min_guidance: Hard floor for guidance (Flux needs 3.0+, default: 3.0)
+            divergence_scaling: Scale Flux divergences by this factor (default: 5.0)
         """
         self.divergence_calculator = DivergenceCalculator(
             divergence_type=divergence_type,
@@ -197,10 +231,14 @@ class ITOSampler:
             guidance_max=guidance_max,
             schedule_type=schedule_type,
             sensitivity=sensitivity,
-            warmup_steps=warmup_steps
+            warmup_steps=warmup_steps,
+            flux_mode=flux_mode,
+            absolute_min_guidance=absolute_min_guidance,
+            divergence_scaling=divergence_scaling
         )
 
         self.debug_mode = debug_mode
+        self.flux_mode = flux_mode
 
         # Debug tracking
         self.divergence_history = []
