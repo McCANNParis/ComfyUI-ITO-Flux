@@ -7,8 +7,7 @@ This module provides the ComfyUI node interface for the ITO sampler.
 import torch
 import comfy.samplers
 import comfy.sample
-from comfy.samplers import KSAMPLER
-import folder_paths
+import nodes
 from .ito_sampler import ITOSampler
 from .visualization import create_metric_plot, MetricsCollector
 
@@ -172,8 +171,9 @@ class ITOFluxSampler:
         model.model = wrapped_model
 
         try:
-            # Use ComfyUI's common_ksampler function (same as standard KSampler)
-            samples = comfy.samplers.common_ksampler(
+            # Use the standard KSampler node's sample method
+            ksampler = nodes.KSampler()
+            result = ksampler.sample(
                 model,
                 seed,
                 steps,
@@ -183,8 +183,8 @@ class ITOFluxSampler:
                 positive,
                 negative,
                 latent_image,
-                denoise=denoise
-            )[0]
+                denoise
+            )
 
             # Print debug summary if enabled
             if debug_mode:
@@ -194,7 +194,7 @@ class ITOFluxSampler:
                     print(f"{key}: {value}")
                 print("=" * 40 + "\n")
 
-            return ({"samples": samples},)
+            return result
 
         finally:
             # Restore original model
@@ -353,8 +353,9 @@ class ITOFluxSamplerDebug:
         model.model = wrapped_model
 
         try:
-            # Use ComfyUI's common_ksampler function (same as standard KSampler)
-            samples = comfy.samplers.common_ksampler(
+            # Use the standard KSampler node's sample method
+            ksampler = nodes.KSampler()
+            result = ksampler.sample(
                 model,
                 seed,
                 steps,
@@ -364,8 +365,8 @@ class ITOFluxSamplerDebug:
                 positive,
                 negative,
                 latent_image,
-                denoise=denoise
-            )[0]
+                denoise
+            )
 
             # Create debug visualization
             debug_plot_tensor = metrics_collector.create_plot()
@@ -382,7 +383,7 @@ class ITOFluxSamplerDebug:
                 print(f"{key}: {value}")
             print("=" * 40 + "\n")
 
-            return ({"samples": samples}, debug_plot)
+            return (result[0], debug_plot)
 
         finally:
             # Restore original model
