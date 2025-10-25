@@ -172,11 +172,8 @@ class ITOFluxSampler:
         model.model = wrapped_model
 
         try:
-            # Use ComfyUI's standard sampling with our wrapped model
-            latent = latent_image["samples"]
-
-            # Run sampling
-            samples = comfy.sample.sample(
+            # Use ComfyUI's common_ksampler function (same as standard KSampler)
+            samples = comfy.samplers.common_ksampler(
                 model,
                 seed,
                 steps,
@@ -185,9 +182,9 @@ class ITOFluxSampler:
                 scheduler,
                 positive,
                 negative,
-                latent,
+                latent_image,
                 denoise=denoise
-            )
+            )[0]
 
             # Print debug summary if enabled
             if debug_mode:
@@ -356,11 +353,8 @@ class ITOFluxSamplerDebug:
         model.model = wrapped_model
 
         try:
-            # Use ComfyUI's standard sampling with our wrapped model
-            latent = latent_image["samples"]
-
-            # Run sampling
-            samples = comfy.sample.sample(
+            # Use ComfyUI's common_ksampler function (same as standard KSampler)
+            samples = comfy.samplers.common_ksampler(
                 model,
                 seed,
                 steps,
@@ -369,9 +363,9 @@ class ITOFluxSamplerDebug:
                 scheduler,
                 positive,
                 negative,
-                latent,
+                latent_image,
                 denoise=denoise
-            )
+            )[0]
 
             # Create debug visualization
             debug_plot_tensor = metrics_collector.create_plot()
